@@ -154,10 +154,16 @@ async def download_and_send(query, context, url, mode, quality="360"):
                 await query.message.reply_audio(audio=f, title=title[:64], caption=title[:200])
             else:
                 await query.message.reply_video(video=f, caption=title[:200], supports_streaming=True)
-        await status.delete()
+        try:
+            await status.delete()
+        except Exception:
+            pass
     except Exception as e:
         logger.error("Send error: " + str(e))
-        await status.edit_text("Yuborishda xato yuz berdi.")
+        try:
+            await status.edit_text("Yuborishda xato yuz berdi.")
+        except Exception:
+            pass
     finally:
         if os.path.exists(fpath):
             os.remove(fpath)
