@@ -17,7 +17,19 @@ logger = logging.getLogger(__name__)
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 def is_youtube_url(url):
-    return any(d in url for d in ["youtube.com", "youtu.be", "m.youtube.com"])
+    return any(d in url for d in ["youtube.com", "youtu.be", "m.youtube.com", "youtube-nocookie.com"])
+
+def clean_url(url):
+    url = url.strip()
+    if "youtu.be/" in url:
+        video_id = url.split("youtu.be/")[1].split("?")[0].split("&")[0]
+        return f"https://www.youtube.com/watch?v={video_id}"
+    if "youtube.com/watch" in url:
+        import re
+        m = re.search(r'v=([^&]+)', url)
+        if m:
+            return f"https://www.youtube.com/watch?v={m.group(1)}"
+    return url
 
 def get_video_info(url):
     try:
