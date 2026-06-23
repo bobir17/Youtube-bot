@@ -248,10 +248,6 @@ async def download_and_send(query, context, url, mode, quality="360"):
             pass
     except Exception as e:
         logger.error("Send error: " + str(e))
-        try:
-            await status.edit_text(t(context, "send_error"))
-        except Exception:
-            pass
     finally:
         if os.path.exists(fpath):
             os.remove(fpath)
