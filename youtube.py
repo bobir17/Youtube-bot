@@ -11,7 +11,7 @@ import yt_dlp
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 DOWNLOAD_DIR = "./downloads"
-MAX_FILE_SIZE_MB = 45
+MAX_FILE_SIZE_MB = 49
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -29,8 +29,8 @@ def is_youtube_url(url):
 def clean_url(url):
     url = url.strip()
     if "youtu.be/" in url:
-        video_id = url.split("youtu.be/")[1].split("?")[0].split("&")[0]
-        return f"https://www.youtube.com/watch?v={video_id}"
+        vid = url.split("youtu.be/")[1].split("?")[0].split("&")[0]
+        return f"https://www.youtube.com/watch?v={vid}"
     if "youtube.com/watch" in url:
         m = re.search(r'v=([^&]+)', url)
         if m:
@@ -58,7 +58,7 @@ def _do_download(url, ydl_opts):
             if os.path.exists(fname):
                 return fname
             base = os.path.splitext(fname)[0]
-            for ext in [".mp3", ".mp4", ".webm", ".m4a"]:
+            for ext in [".m4a", ".webm", ".mp3", ".mp4"]:
                 if os.path.exists(base + ext):
                     return base + ext
     except Exception as e:
@@ -68,8 +68,8 @@ def _do_download(url, ydl_opts):
 async def start(update: Update, context):
     await update.message.reply_text(
         "👋 Salom! YouTube havolasini yuboring.\n\n"
-        "🎥 Video (MP4) yoki 🎵 Audio (MP3) yuklash mumkin.\n"
-        "⚠️ 45MB gacha fayllar yuboriladi."
+        "🎥 Video (MP4) yoki 🎵 Audio yuklash mumkin.\n"
+        "⚠️ 49MB gacha fayllar yuboriladi."
     )
 
 async def handle_url(update: Update, context):
@@ -85,7 +85,7 @@ async def handle_url(update: Update, context):
     msg = await update.message.reply_text("⏳ Ma'lumot olinmoqda...")
     info = get_video_info(url)
     if not info:
-        await msg.edit_text("❌ Video topilmadi yoki yuklab bo'lmadi. Boshqa video sinab ko'ring.")
+        await msg.edit_text("❌ Video topilmadi yoki yuklab bo'lmadi.")
         return
     context.user_data["url"] = url
     context.user_data["title"] = info.get("title", "Video")
@@ -94,7 +94,7 @@ async def handle_url(update: Update, context):
     uploader = info.get("uploader", "Noma'lum")
     keyboard = [
         [InlineKeyboardButton("🎥 Video (MP4)", callback_data="format_video"),
-         InlineKeyboardButton("🎵 Audio (MP3)", callback_data="format_audio")],
+         InlineKeyboardButton("🎵 Audio", callback_data="format_audio")],
         [InlineKeyboardButton("❌ Bekor", callback_data="cancel")]
     ]
     await msg.edit_text(
@@ -119,7 +119,6 @@ async def handle_format(update: Update, context):
         keyboard = [
             [InlineKeyboardButton("📱 360p", callback_data="q_360")],
             [InlineKeyboardButton("💻 720p HD", callback_data="q_720")],
-            [InlineKeyboardButton("🖥 1080p Full HD", callback_data="q_1080")],
             [InlineKeyboardButton("❌ Bekor", callback_data="cancel")]
         ]
         await query.message.edit_text("🎥 Sifat tanlang:", reply_markup=InlineKeyboardMarkup(keyboard))
@@ -137,60 +136,4 @@ async def handle_quality(update: Update, context):
     q = query.data.replace("q_", "")
     await download_and_send(query, context, url, "video", q)
 
-async def download_and_send(query, context, url, mode, quality="720"):
-    title = context.user_data.get("title", "video")
-    uid = query.from_user.id
-    out = os.path.join(DOWNLOAD_DIR, str(uid))
-    os.makedirs(out, exist_ok=True)
-    tmpl = os.path.join(out, "%(title).40s.%(ext)s")
-    status = await query.message.edit_text("⬇️ Yuklanmoqda... Kuting...")
-
-    opts = dict(YDL_BASE)
-    opts["outtmpl"] = tmpl
-    if mode == "audio":
-        opts["format"] = "bestaudio/best"
-        opts["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "128"}]
-    else:
-        opts["format"] = f"bestvideo[height<={quality}][ext=mp4]+bestaudio[ext=m4a]/best[height<={quality}]/best"
-        opts["merge_output_format"] = "mp4"
-
-    loop = asyncio.get_event_loop()
-    fpath = await loop.run_in_executor(None, lambda: _do_download(url, opts))
-
-    if not fpath:
-        await status.edit_text("❌ Yuklashda xato. Qayta urinib ko'ring.")
-        return
-
-    fsize = os.path.getsize(fpath)
-    if fsize > MAX_FILE_SIZE_MB * 1024 * 1024:
-        os.remove(fpath)
-        await status.edit_text(f"❌ Fayl juda katta ({fsize//1024//1024}MB).\nKichikroq sifat tanlang.")
-        return
-
-    await status.edit_text("📤 Yuborilmoqda...")
-    try:
-        with open(fpath, "rb") as f:
-            if mode == "audio":
-                await query.message.reply_audio(audio=f, title=title[:64], caption=f"🎵 {title[:200]}")
-            else:
-                await query.message.reply_video(video=f, caption=f"🎬 {title[:200]}", supports_streaming=True)
-        await status.delete()
-    except Exception as e:
-        logger.error(f"Send error: {e}")
-        await status.edit_text("❌ Yuborishda xato yuz berdi.")
-    finally:
-        if os.path.exists(fpath):
-            os.remove(fpath)
-
-def main():
-    app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_url))
-    app.add_handler(CallbackQueryHandler(handle_format, pattern="^format_"))
-    app.add_handler(CallbackQueryHandler(handle_quality, pattern="^q_"))
-    app.add_handler(CallbackQueryHandler(handle_format, pattern="^cancel$"))
-    print("Bot ishga tushdi!")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
-
-if __name__ == "__main__":
-    main()
+async def download_and_send(query, context, url,
