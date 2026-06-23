@@ -133,7 +133,8 @@ async def download_and_send(query, context, url, mode, quality="360"):
     opts = dict(YDL_BASE)
     opts["outtmpl"] = tmpl
     if mode == "audio":
-        opts["format"] = "bestaudio[ext=m4a]/bestaudio"
+        opts["format"] = "bestaudio/best"
+        opts["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}]
     else:
         opts["format"] = "best[height<=" + quality + "][ext=mp4]/best[height<=" + quality + "]/best"
     loop = asyncio.get_event_loop()
