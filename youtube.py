@@ -14,7 +14,7 @@ logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=lo
 logger = logging.getLogger(__name__)
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-YDL_BASE = {"quiet": True, "no_warnings": True, "extractor_args": {"youtube": {"player_client": ["android", "web"]}}}
+YDL_BASE = {"quiet": True, "no_warnings": True, "extractor_args": {"youtube": {"player_client": ["tv", "ios", "android", "web"]}}, "http_headers": {"User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"}}
 
 def is_youtube_url(url):
     return any(d in url for d in ["youtube.com", "youtu.be", "m.youtube.com"])
