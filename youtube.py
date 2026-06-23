@@ -17,6 +17,12 @@ logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=lo
 logger = logging.getLogger(__name__)
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
+YDL_BASE = {
+    "quiet": True,
+    "no_warnings": True,
+    "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
+}
+
 def is_youtube_url(url):
     return any(d in url for d in ["youtube.com", "youtu.be", "m.youtube.com"])
 
@@ -33,14 +39,10 @@ def clean_url(url):
 
 def get_video_info(url):
     try:
-        opts = {
-            "quiet": True,
-            "no_warnings": True,
-            "http_headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
-        }
-        with yt_dlp.YoutubeDL(opts) as ydl:
+        with yt_dlp.YoutubeDL(dict(YDL_BASE)) as ydl:
             return ydl.extract_info(url, download=False)
-    except:
+    except Exception as e:
+        logger.error(f"Info error: {e}")
         return None
 
 def format_duration(s):
@@ -66,35 +68,30 @@ def _do_download(url, ydl_opts):
 async def start(update: Update, context):
     await update.message.reply_text(
         "👋 Salom! YouTube havolasini yuboring.\n\n"
-        "🎥 Video (MP4) yoki 🎵 Audio (MP3) yuklash mumkin."
+        "🎥 Video (MP4) yoki 🎵 Audio (MP3) yuklash mumkin.\n"
+        "⚠️ 45MB gacha fayllar yuboriladi."
     )
 
 async def handle_url(update: Update, context):
-    msg_text = update.message.text or ""
-    # Havolani xabar ichidan topamiz
+    msg_text = update.message.text or update.message.caption or ""
     urls = re.findall(r'https?://[^\s]+', msg_text)
     if not urls:
         await update.message.reply_text("❌ Havola topilmadi. YouTube havolasini yuboring.")
         return
-    
     url = clean_url(urls[0])
-    
     if not is_youtube_url(url):
         await update.message.reply_text("❌ Bu YouTube havolasi emas.")
         return
-    
     msg = await update.message.reply_text("⏳ Ma'lumot olinmoqda...")
     info = get_video_info(url)
     if not info:
-        await msg.edit_text("❌ Video topilmadi yoki xususiy video.")
+        await msg.edit_text("❌ Video topilmadi yoki yuklab bo'lmadi. Boshqa video sinab ko'ring.")
         return
-    
     context.user_data["url"] = url
     context.user_data["title"] = info.get("title", "Video")
     title = info.get("title", "Noma'lum")
     duration = info.get("duration", 0)
     uploader = info.get("uploader", "Noma'lum")
-    
     keyboard = [
         [InlineKeyboardButton("🎥 Video (MP4)", callback_data="format_video"),
          InlineKeyboardButton("🎵 Audio (MP3)", callback_data="format_audio")],
@@ -148,24 +145,14 @@ async def download_and_send(query, context, url, mode, quality="720"):
     tmpl = os.path.join(out, "%(title).40s.%(ext)s")
     status = await query.message.edit_text("⬇️ Yuklanmoqda... Kuting...")
 
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-
+    opts = dict(YDL_BASE)
+    opts["outtmpl"] = tmpl
     if mode == "audio":
-        opts = {
-            "format": "bestaudio/best",
-            "outtmpl": tmpl,
-            "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "128"}],
-            "quiet": True,
-            "http_headers": headers,
-        }
+        opts["format"] = "bestaudio/best"
+        opts["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "128"}]
     else:
-        opts = {
-            "format": f"bestvideo[height<={quality}][ext=mp4]+bestaudio[ext=m4a]/best[height<={quality}]/best",
-            "outtmpl": tmpl,
-            "merge_output_format": "mp4",
-            "quiet": True,
-            "http_headers": headers,
-        }
+        opts["format"] = f"bestvideo[height<={quality}][ext=mp4]+bestaudio[ext=m4a]/best[height<={quality}]/best"
+        opts["merge_output_format"] = "mp4"
 
     loop = asyncio.get_event_loop()
     fpath = await loop.run_in_executor(None, lambda: _do_download(url, opts))
@@ -189,7 +176,7 @@ async def download_and_send(query, context, url, mode, quality="720"):
                 await query.message.reply_video(video=f, caption=f"🎬 {title[:200]}", supports_streaming=True)
         await status.delete()
     except Exception as e:
-        logger.error(f"Yuborishda xato: {e}")
+        logger.error(f"Send error: {e}")
         await status.edit_text("❌ Yuborishda xato yuz berdi.")
     finally:
         if os.path.exists(fpath):
