@@ -1,1 +1,0 @@
-worker: python youtube.py
