@@ -33,7 +33,12 @@ def clean_url(url):
 
 def get_video_info(url):
     try:
-        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
+        opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "http_headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+        }
+        with yt_dlp.YoutubeDL(opts) as ydl:
             return ydl.extract_info(url, download=False)
     except:
         return None
@@ -43,12 +48,9 @@ def format_duration(s):
     h, m = divmod(m, 60)
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
-def format_size(b):
-    return f"{b/1024/1024:.1f}MB"
-
 def _do_download(url, ydl_opts):
     try:
-    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "extractor_args": {"youtube": {"skip": ["dash", "hls"]}}, "http_headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}}) as ydl:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             fname = ydl.prepare_filename(info)
             if os.path.exists(fname):
@@ -61,29 +63,38 @@ def _do_download(url, ydl_opts):
         logger.error(f"Download error: {e}")
     return None
 
-async def start(update, context):
+async def start(update: Update, context):
     await update.message.reply_text(
         "👋 Salom! YouTube havolasini yuboring.\n\n"
-        "🎥 Video (MP4) yoki 🎵 Audio (MP3) yuklash mumkin.\n"
-        "⚠️ 45MB gacha fayllar yuboriladi."
+        "🎥 Video (MP4) yoki 🎵 Audio (MP3) yuklash mumkin."
     )
 
-async def handle_url(update, context):
-    url = update.message.text.strip()
-    url = clean_url(url)
+async def handle_url(update: Update, context):
+    msg_text = update.message.text or ""
+    # Havolani xabar ichidan topamiz
+    urls = re.findall(r'https?://[^\s]+', msg_text)
+    if not urls:
+        await update.message.reply_text("❌ Havola topilmadi. YouTube havolasini yuboring.")
+        return
+    
+    url = clean_url(urls[0])
+    
     if not is_youtube_url(url):
         await update.message.reply_text("❌ Bu YouTube havolasi emas.")
         return
+    
     msg = await update.message.reply_text("⏳ Ma'lumot olinmoqda...")
     info = get_video_info(url)
     if not info:
         await msg.edit_text("❌ Video topilmadi yoki xususiy video.")
         return
+    
     context.user_data["url"] = url
     context.user_data["title"] = info.get("title", "Video")
     title = info.get("title", "Noma'lum")
     duration = info.get("duration", 0)
     uploader = info.get("uploader", "Noma'lum")
+    
     keyboard = [
         [InlineKeyboardButton("🎥 Video (MP4)", callback_data="format_video"),
          InlineKeyboardButton("🎵 Audio (MP3)", callback_data="format_audio")],
@@ -95,7 +106,7 @@ async def handle_url(update, context):
         parse_mode="Markdown"
     )
 
-async def handle_format(update, context):
+async def handle_format(update: Update, context):
     query = update.callback_query
     await query.answer()
     if query.data == "cancel":
@@ -116,7 +127,7 @@ async def handle_format(update, context):
         ]
         await query.message.edit_text("🎥 Sifat tanlang:", reply_markup=InlineKeyboardMarkup(keyboard))
 
-async def handle_quality(update, context):
+async def handle_quality(update: Update, context):
     query = update.callback_query
     await query.answer()
     if query.data == "cancel":
@@ -137,16 +148,15 @@ async def download_and_send(query, context, url, mode, quality="720"):
     tmpl = os.path.join(out, "%(title).40s.%(ext)s")
     status = await query.message.edit_text("⬇️ Yuklanmoqda... Kuting...")
 
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+
     if mode == "audio":
         opts = {
             "format": "bestaudio/best",
             "outtmpl": tmpl,
-            "postprocessors": [{
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "128",
-            }],
+            "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "128"}],
             "quiet": True,
+            "http_headers": headers,
         }
     else:
         opts = {
@@ -154,6 +164,7 @@ async def download_and_send(query, context, url, mode, quality="720"):
             "outtmpl": tmpl,
             "merge_output_format": "mp4",
             "quiet": True,
+            "http_headers": headers,
         }
 
     loop = asyncio.get_event_loop()
@@ -164,31 +175,18 @@ async def download_and_send(query, context, url, mode, quality="720"):
         return
 
     fsize = os.path.getsize(fpath)
-    max_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
-
-    if fsize > max_bytes:
+    if fsize > MAX_FILE_SIZE_MB * 1024 * 1024:
         os.remove(fpath)
-        await status.edit_text(
-            f"❌ Fayl juda katta ({format_size(fsize)}).\n"
-            f"Kichikroq sifat tanlang yoki qisqaroq video yuboring."
-        )
+        await status.edit_text(f"❌ Fayl juda katta ({fsize//1024//1024}MB).\nKichikroq sifat tanlang.")
         return
 
     await status.edit_text("📤 Yuborilmoqda...")
     try:
         with open(fpath, "rb") as f:
             if mode == "audio":
-                await query.message.reply_audio(
-                    audio=f,
-                    title=title[:64],
-                    caption=f"🎵 {title[:200]}"
-                )
+                await query.message.reply_audio(audio=f, title=title[:64], caption=f"🎵 {title[:200]}")
             else:
-                await query.message.reply_video(
-                    video=f,
-                    caption=f"🎬 {title[:200]}",
-                    supports_streaming=True
-                )
+                await query.message.reply_video(video=f, caption=f"🎬 {title[:200]}", supports_streaming=True)
         await status.delete()
     except Exception as e:
         logger.error(f"Yuborishda xato: {e}")
@@ -200,7 +198,7 @@ async def download_and_send(query, context, url, mode, quality="720"):
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_url))
     app.add_handler(CallbackQueryHandler(handle_format, pattern="^format_"))
     app.add_handler(CallbackQueryHandler(handle_quality, pattern="^q_"))
     app.add_handler(CallbackQueryHandler(handle_format, pattern="^cancel$"))
