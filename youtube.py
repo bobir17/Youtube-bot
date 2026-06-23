@@ -48,7 +48,7 @@ def format_size(b):
 
 def _do_download(url, ydl_opts):
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "extractor_args": {"youtube": {"skip": ["dash", "hls"]}}, "http_headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}}) as ydl:
             info = ydl.extract_info(url, download=True)
             fname = ydl.prepare_filename(info)
             if os.path.exists(fname):
