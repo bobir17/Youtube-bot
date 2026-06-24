@@ -20,7 +20,7 @@ YDL_BASE = {"quiet": True, "no_warnings": True, "ffmpeg_location": FFMPEG_PATH, 
 
 TEXTS = {
     "uz": {
-        "start": "Salom! YouTube havolasini yuboring.",
+        "start": "Salom! YouTube havolasini yuboring.\n\nVideo (MP4) yoki Audio (MP3) yuklash mumkin.\n49MB gacha fayllar yuboriladi.",
         "no_link": "Havola topilmadi. YouTube havolasini yuboring.",
         "not_youtube": "Bu YouTube havolasi emas.",
         "getting_info": "Ma'lumot olinmoqda...",
@@ -40,7 +40,7 @@ TEXTS = {
         "lang_chosen": "Til tanlandi! Endi YouTube havolasini yuboring.",
     },
     "ru": {
-        "start": "Привет! Отправьте ссылку на YouTube.",
+        "start": "Привет! Отправьте ссылку на YouTube.\n\nМожно скачать Видео (MP4) или Аудио (MP3).\nФайлы до 49МБ.",
         "no_link": "Ссылка не найдена. Отправьте ссылку YouTube.",
         "not_youtube": "Это не ссылка YouTube.",
         "getting_info": "Получаю информацию...",
@@ -60,7 +60,7 @@ TEXTS = {
         "lang_chosen": "Язык выбран! Теперь отправьте ссылку YouTube.",
     },
     "en": {
-        "start": "Hello! Send a YouTube link.",
+        "start": "Hello! Send a YouTube link.\n\nYou can download Video (MP4) or Audio (MP3).\nFiles up to 49MB.",
         "no_link": "No link found. Send a YouTube link.",
         "not_youtube": "This is not a YouTube link.",
         "getting_info": "Getting info...",
@@ -135,7 +135,10 @@ async def start(update, context):
         [InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru")],
         [InlineKeyboardButton("🇬🇧 English", callback_data="lang_en")],
     ]
-    await update.message.reply_text("Tilni tanlang / Выберите язык / Choose language:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text(
+        "Tilni tanlang / Выберите язык / Choose language:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 async def handle_lang(update, context):
     query = update.callback_query
@@ -161,4 +164,100 @@ async def handle_url(update, context):
         return
     context.user_data["url"] = url
     context.user_data["title"] = info.get("title", "Video")
-    title =
+    title = info.get("title", "Video")
+    duration = info.get("duration", 0)
+    uploader = info.get("uploader", "")
+    keyboard = [
+        [InlineKeyboardButton(t(context, "video"), callback_data="format_video"), InlineKeyboardButton(t(context, "audio"), callback_data="format_audio")],
+        [InlineKeyboardButton(t(context, "cancel"), callback_data="cancel")]
+    ]
+    text = title[:60] + "\n" + uploader + "\n" + format_duration(duration) + "\n\n" + t(context, "choose_format")
+    await msg.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def handle_format(update, context):
+    query = update.callback_query
+    await query.answer()
+    if query.data == "cancel":
+        await query.message.edit_text(t(context, "cancelled"))
+        return
+    url = context.user_data.get("url")
+    if not url:
+        await query.message.edit_text(t(context, "link_not_found"))
+        return
+    if query.data == "format_audio":
+        await download_and_send(query, context, url, "audio")
+    else:
+        keyboard = [
+            [InlineKeyboardButton("360p", callback_data="q_360")],
+            [InlineKeyboardButton("720p HD", callback_data="q_720")],
+            [InlineKeyboardButton(t(context, "cancel"), callback_data="cancel")]
+        ]
+        await query.message.edit_text(t(context, "choose_quality"), reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def handle_quality(update, context):
+    query = update.callback_query
+    await query.answer()
+    if query.data == "cancel":
+        await query.message.edit_text(t(context, "cancelled"))
+        return
+    url = context.user_data.get("url")
+    if not url:
+        await query.message.edit_text(t(context, "link_not_found"))
+        return
+    q = query.data.replace("q_", "")
+    await download_and_send(query, context, url, "video", q)
+
+async def download_and_send(query, context, url, mode, quality="360"):
+    title = context.user_data.get("title", "video")
+    uid = query.from_user.id
+    out = os.path.join(DOWNLOAD_DIR, str(uid))
+    os.makedirs(out, exist_ok=True)
+    tmpl = os.path.join(out, "%(title).40s.%(ext)s")
+    status = await query.message.edit_text(t(context, "downloading"))
+    opts = dict(YDL_BASE)
+    opts["outtmpl"] = tmpl
+    if mode == "audio":
+        opts["format"] = "bestaudio/best"
+        opts["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}]
+    else:
+        opts["format"] = "best[height<=" + quality + "][ext=mp4]/best[height<=" + quality + "]/best"
+    loop = asyncio.get_event_loop()
+    fpath = await loop.run_in_executor(None, lambda: do_download(url, opts))
+    if not fpath:
+        await status.edit_text(t(context, "download_error"))
+        return
+    fsize = os.path.getsize(fpath)
+    if fsize > MAX_FILE_SIZE_MB * 1024 * 1024:
+        os.remove(fpath)
+        await status.edit_text(t(context, "too_big") + str(fsize // 1024 // 1024) + t(context, "too_big_end"))
+        return
+    await status.edit_text(t(context, "sending"))
+    try:
+        with open(fpath, "rb") as f:
+            if mode == "audio":
+                await query.message.reply_audio(audio=f, title=title[:64], caption=title[:200])
+            else:
+                await query.message.reply_video(video=f, caption=title[:200], supports_streaming=True)
+        try:
+            await status.delete()
+        except Exception:
+            pass
+    except Exception as e:
+        logger.error("Send error: " + str(e))
+    finally:
+        if os.path.exists(fpath):
+            os.remove(fpath)
+
+def main():
+    app = Application.builder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(handle_lang, pattern="^lang_"))
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_url))
+    app.add_handler(CallbackQueryHandler(handle_format, pattern="^format_"))
+    app.add_handler(CallbackQueryHandler(handle_quality, pattern="^q_"))
+    app.add_handler(CallbackQueryHandler(handle_format, pattern="^cancel$"))
+    print("Bot ishga tushdi!")
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+if __name__ == "__main__":
+    main()
