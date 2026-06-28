@@ -18,11 +18,12 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 YDL_BASE = {"quiet": True, "no_warnings": True, "ffmpeg_location": FFMPEG_PATH, "extractor_args": {"youtube": {"player_client": ["android", "web"]}}}
 
+SUPPORTED_SITES = ["youtube.com", "youtu.be", "m.youtube.com", "instagram.com", "tiktok.com", "vm.tiktok.com", "vt.tiktok.com", "facebook.com", "fb.watch", "fb.com"]
+
 TEXTS = {
     "uz": {
-        "start": "Salom! YouTube havolasini yuboring.\n\nVideo (MP4) yoki Audio (MP3) yuklash mumkin.\n49MB gacha fayllar yuboriladi.",
-        "no_link": "Havola topilmadi. YouTube havolasini yuboring.",
-        "not_youtube": "Bu YouTube havolasi emas.",
+        "no_link": "Havola topilmadi. YouTube, Instagram, TikTok yoki Facebook havolasini yuboring.",
+        "not_supported": "Bu havola qo'llab-quvvatlanmaydi. YouTube, Instagram, TikTok yoki Facebook havolasini yuboring.",
         "getting_info": "Ma'lumot olinmoqda...",
         "not_found": "Video topilmadi yoki yuklab bo'lmadi.",
         "choose_format": "Format tanlang:",
@@ -37,12 +38,11 @@ TEXTS = {
         "too_big": "Fayl juda katta (",
         "too_big_end": "MB).\nKichikroq sifat tanlang.",
         "sending": "Yuborilmoqda...",
-        "lang_chosen": "Til tanlandi! Endi YouTube havolasini yuboring.",
+        "lang_chosen": "Til tanlandi! Endi havola yuboring (YouTube, Instagram, TikTok, Facebook).",
     },
     "ru": {
-        "start": "Привет! Отправьте ссылку на YouTube.\n\nМожно скачать Видео (MP4) или Аудио (MP3).\nФайлы до 49МБ.",
-        "no_link": "Ссылка не найдена. Отправьте ссылку YouTube.",
-        "not_youtube": "Это не ссылка YouTube.",
+        "no_link": "Ссылка не найдена. Отправьте ссылку YouTube, Instagram, TikTok или Facebook.",
+        "not_supported": "Эта ссылка не поддерживается. Отправьте YouTube, Instagram, TikTok или Facebook.",
         "getting_info": "Получаю информацию...",
         "not_found": "Видео не найдено или не удалось загрузить.",
         "choose_format": "Выберите формат:",
@@ -57,12 +57,11 @@ TEXTS = {
         "too_big": "Файл слишком большой (",
         "too_big_end": "МБ).\nВыберите качество ниже.",
         "sending": "Отправка...",
-        "lang_chosen": "Язык выбран! Теперь отправьте ссылку YouTube.",
+        "lang_chosen": "Язык выбран! Теперь отправьте ссылку (YouTube, Instagram, TikTok, Facebook).",
     },
     "en": {
-        "start": "Hello! Send a YouTube link.\n\nYou can download Video (MP4) or Audio (MP3).\nFiles up to 49MB.",
-        "no_link": "No link found. Send a YouTube link.",
-        "not_youtube": "This is not a YouTube link.",
+        "no_link": "No link found. Send a YouTube, Instagram, TikTok or Facebook link.",
+        "not_supported": "This link is not supported. Send YouTube, Instagram, TikTok or Facebook.",
         "getting_info": "Getting info...",
         "not_found": "Video not found or could not be loaded.",
         "choose_format": "Choose format:",
@@ -77,7 +76,7 @@ TEXTS = {
         "too_big": "File too big (",
         "too_big_end": "MB).\nChoose lower quality.",
         "sending": "Sending...",
-        "lang_chosen": "Language selected! Now send a YouTube link.",
+        "lang_chosen": "Language selected! Now send a link (YouTube, Instagram, TikTok, Facebook).",
     },
 }
 
@@ -86,8 +85,8 @@ def t(context, key):
     return TEXTS[lang][key]
 
 def is_supported_url(url):
-    sites = ["youtube.com", "youtu.be", "m.youtube.com", "instagram.com", "tiktok.com", "vm.tiktok.com", "facebook.com", "fb.watch", "fb.com"]
-    return any(d in url for d in sites)
+    return any(d in url for d in SUPPORTED_SITES)
+
 def clean_url(url):
     url = url.strip()
     if "youtu.be/" in url:
@@ -108,7 +107,9 @@ def get_video_info(url):
         return None
 
 def format_duration(s):
-    m, s = divmod(s, 60)
+    if not s:
+        return ""
+    m, s = divmod(int(s), 60)
     h, m = divmod(m, 60)
     if h:
         return str(h) + ":" + str(m).zfill(2) + ":" + str(s).zfill(2)
@@ -154,8 +155,8 @@ async def handle_url(update, context):
         await update.message.reply_text(t(context, "no_link"))
         return
     url = clean_url(urls[0])
-    if not is_youtube_url(url):
-        await update.message.reply_text(t(context, "not_youtube"))
+    if not is_supported_url(url):
+        await update.message.reply_text(t(context, "not_supported"))
         return
     msg = await update.message.reply_text(t(context, "getting_info"))
     info = get_video_info(url)
@@ -171,7 +172,7 @@ async def handle_url(update, context):
         [InlineKeyboardButton(t(context, "video"), callback_data="format_video"), InlineKeyboardButton(t(context, "audio"), callback_data="format_audio")],
         [InlineKeyboardButton(t(context, "cancel"), callback_data="cancel")]
     ]
-    text = title[:60] + "\n" + uploader + "\n" + format_duration(duration) + "\n\n" + t(context, "choose_format")
+    text = (title or "Video")[:60] + "\n" + (uploader or "") + "\n" + format_duration(duration) + "\n\n" + t(context, "choose_format")
     await msg.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def handle_format(update, context):
