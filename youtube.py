@@ -85,9 +85,9 @@ def t(context, key):
     lang = context.user_data.get("lang", "uz")
     return TEXTS[lang][key]
 
-def is_youtube_url(url):
-    return any(d in url for d in ["youtube.com", "youtu.be", "m.youtube.com"])
-
+def is_supported_url(url):
+    sites = ["youtube.com", "youtu.be", "m.youtube.com", "instagram.com", "tiktok.com", "vm.tiktok.com", "facebook.com", "fb.watch", "fb.com"]
+    return any(d in url for d in sites)
 def clean_url(url):
     url = url.strip()
     if "youtu.be/" in url:
